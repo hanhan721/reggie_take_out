@@ -1,13 +1,18 @@
+import com.itheima.reggie.ReggieApplication;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.RedisTemplate;
 
 import java.math.BigDecimal;
+import java.util.Set;
 
+@SpringBootTest(classes = ReggieApplication.class)
 public class test {
+    @Autowired
+    private RedisTemplate redisTemplate;
     @Test
-    public  void te() {
-        BigDecimal n=new BigDecimal(123);
-        BigDecimal n2=new BigDecimal(2);
-        n.add(n2);
-        System.out.println(n);
+    public  void test() {
+        System.out.println(redisTemplate.keys("dish*_*"));
     }
 }

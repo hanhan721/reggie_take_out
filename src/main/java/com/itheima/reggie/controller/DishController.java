@@ -2,6 +2,7 @@ package com.itheima.reggie.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.itheima.reggie.common.BaseContext;
 import com.itheima.reggie.common.R;
 import com.itheima.reggie.dto.DishDto;
 import com.itheima.reggie.entity.Category;
@@ -10,13 +11,18 @@ import com.itheima.reggie.entity.DishFlavor;
 import com.itheima.reggie.service.CategoryService;
 import com.itheima.reggie.service.DishFlavorService;
 import com.itheima.reggie.service.DishService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /*
@@ -24,6 +30,7 @@ import java.util.stream.Collectors;
  * */
 @RestController
 @RequestMapping("/dish")
+@Slf4j
 public class DishController {
     @Autowired
     private DishFlavorService dishFlavorService;
@@ -31,11 +38,14 @@ public class DishController {
     private DishService dishService;
     @Autowired
     private CategoryService categoryService;
-
+    //注入RedisTemplate对象
+    @Autowired
+    private RedisTemplate redisTemplate;
 
     @PostMapping
     public R<String> save(@RequestBody DishDto dishDto) {
         dishService.saveWithFlavor(dishDto);
+        this.deleteDishFromRedis();
         return R.success("新增菜品成功");
     }
 
@@ -86,45 +96,54 @@ public class DishController {
         DishDto dishDto = dishService.getByIdWithFlavor(id);
         return R.success(dishDto);
     }
+
     /*
-    * 修改菜品保存数据
-    * */
+     * 修改菜品保存数据
+     * */
     @PutMapping
-    public R<String> update(@RequestBody DishDto dishDto){
+    public R<String> update(@RequestBody DishDto dishDto) {
         dishService.updateWithFlavor(dishDto);
+        this.deleteDishFromRedis();
         return R.success("修改成功");
     }
+
     /*
-    * 批量起售
-    * */
+     * 批量起售
+     * */
     @PostMapping("/status/1")
-    public R<String> updateStatusOn(long []ids){
+    public R<String> updateStatusOn(long[] ids) {
         for (long id : ids) {
             dishService.updateStatusOn(id);
         }
+        this.deleteDishFromRedis();
         return R.success("修改成功");
     }
+
     /*
-    * 批量停售
-    * */
+     * 批量停售
+     * */
     @PostMapping("/status/0")
-    public R<String> updateStatusOff(long []ids){
+    public R<String> updateStatusOff(long[] ids) {
         for (long id : ids) {
             dishService.updateStatusOff(id);
         }
+        this.deleteDishFromRedis();
         return R.success("修改成功");
     }
+
     /*
-    * 删除  单个和批量
-    * */
+     * 删除  单个和批量
+     * */
     @DeleteMapping
-    public R<String> delete(@RequestParam List<Long> ids){
+    public R<String> delete(@RequestParam List<Long> ids) {
         dishService.deleteByIdWithFlavor(ids);
+        this.deleteDishFromRedis();
         return R.success("删除成功");
     }
+
     /*
-    * 新增套餐时展示菜品信息
-    * */
+     * 新增套餐时展示菜品信息
+     * */
 /*    @GetMapping("/list")
     public R<List<Dish>> list(Dish dish){
 
@@ -138,23 +157,43 @@ public class DishController {
     }*/
     //前台移动端,需要做一些修改,返回类型应该是DishDto带口味数据的集合
     @GetMapping("/list")
-    public R<List<DishDto>> list(Dish dish){
-        LambdaQueryWrapper<Dish> lqw=new LambdaQueryWrapper<>();
-        lqw.like(dish.getName()!=null,Dish::getName,dish.getName());
-        lqw.eq(Dish::getStatus,1);  //查询状态为1的,起售
-        lqw.eq(dish.getCategoryId()!=null,Dish::getCategoryId,dish.getCategoryId());
-        lqw.orderByAsc(Dish::getSort).orderByDesc(Dish::getUpdateTime);
-        List<Dish> list = dishService.list(lqw);
-        List<DishDto> dishDtoList=list.stream().map((item)->{
-            DishDto dishDto=new DishDto();
-            BeanUtils.copyProperties(item,dishDto);
-            LambdaQueryWrapper<DishFlavor> wrapper=new LambdaQueryWrapper<>();
-            wrapper.eq(DishFlavor::getDishId,item.getId());
-            List<DishFlavor> dishFlavorList = dishFlavorService.list(wrapper);
-            dishDto.setFlavors(dishFlavorList);
-            return dishDto;
-        }).collect(Collectors.toList());
-
+    public R<List<DishDto>> list(Dish dish) {
+        //使用redis缓存菜品数据
+        List<DishDto> dishDtoList = new ArrayList<>();
+        String key = "CategoryId:" + dish.getCategoryId() + "_" + dish.getStatus();
+        dishDtoList = (List<DishDto>) redisTemplate.opsForValue().get(key);
+        if (dishDtoList == null) {
+            log.info("redis中没找到数据,通过数据库查询");
+            LambdaQueryWrapper<Dish> lqw = new LambdaQueryWrapper<>();
+            lqw.like(dish.getName() != null, Dish::getName, dish.getName());
+            lqw.eq(Dish::getStatus, 1);  //查询状态为1的,起售
+            lqw.eq(dish.getCategoryId() != null, Dish::getCategoryId, dish.getCategoryId());
+            lqw.orderByAsc(Dish::getSort).orderByDesc(Dish::getUpdateTime);
+            List<Dish> list = dishService.list(lqw);
+            dishDtoList = list.stream().map((item) -> {
+                DishDto dishDto = new DishDto();
+                BeanUtils.copyProperties(item, dishDto);
+                LambdaQueryWrapper<DishFlavor> wrapper = new LambdaQueryWrapper<>();
+                wrapper.eq(DishFlavor::getDishId, item.getId());
+                List<DishFlavor> dishFlavorList = dishFlavorService.list(wrapper);
+                dishDto.setFlavors(dishFlavorList);
+                return dishDto;
+            }).collect(Collectors.toList());
+            //保存至redis中60分钟
+            redisTemplate.opsForValue().set(key, dishDtoList, 60, TimeUnit.MINUTES);
+        } else {
+            log.info("redis中有缓存,直接查询redis");
+        }
         return R.success(dishDtoList);
+    }
+
+    //从redis中删除dish菜品缓存
+    void deleteDishFromRedis() {
+        Set keys = redisTemplate.keys("CategoryId:*_*");
+        System.out.println("=============================");
+        System.out.println(keys);
+        if (keys != null) {
+            redisTemplate.delete(keys);
+        }
     }
 }
