@@ -13,8 +13,6 @@ import com.itheima.reggie.service.SetmealService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
@@ -35,8 +33,7 @@ public class SetmealController {
     * 新增套餐
     * */
     @PostMapping
-    @CacheEvict(value = "setmealCache",allEntries = true)
-    public R<String> save(@RequestBody SetmealDto setmealDto){
+    private R<String> save(@RequestBody SetmealDto setmealDto){
         setmealService.saveWithDish(setmealDto);
         return R.success("保存成功");
     }
@@ -44,7 +41,7 @@ public class SetmealController {
     * 分页查询
     * */
     @GetMapping("/page")
-    public R<Page> page(int page,int pageSize,String name){
+    private R<Page> page(int page,int pageSize,String name){
         //对Setmeal类的分页展示,不包括套餐分类
         Page<Setmeal> setmealPage=new Page<>(page,pageSize);
         LambdaQueryWrapper<Setmeal> lqw=new LambdaQueryWrapper<>();
@@ -71,7 +68,6 @@ public class SetmealController {
     * 套餐起售
     * */
     @PostMapping("/status/1")
-    @CacheEvict(value = "setmealCache",allEntries = true)
     public R<String> updateStatusOn(long [] ids){
         for (long id : ids) {
             setmealService.updateStatusOn(id);
@@ -82,7 +78,6 @@ public class SetmealController {
     * 套餐停售
     * */
     @PostMapping("/status/0")
-    @CacheEvict(value = "setmealCache",allEntries = true)
     public R<String> updateStatusOff(long [] ids){
         for (long id : ids) {
             setmealService.updateStatusOff(id);
@@ -93,9 +88,7 @@ public class SetmealController {
     * 套餐删除
     * */
     @DeleteMapping
-    @CacheEvict(value = "setmealCache",allEntries = true)
-    //allEntries = true 删除setmealCache下 所有缓存数据
-    public R<String> delete(@RequestParam List<Long> ids){
+    public R<String> deleteById(@RequestParam List<Long> ids){
         setmealService.deleteWithDish(ids);
         return R.success("删除成功");
     }
@@ -111,7 +104,6 @@ public class SetmealController {
     * 套餐修改页面保存功能
     * */
     @PutMapping
-    @CacheEvict(value = "setmealCache",allEntries = true)
     public R<String> update(@RequestBody SetmealDto setmealDto){
         setmealService.updateWithDish(setmealDto);
         return R.success("修改成功");
@@ -120,7 +112,6 @@ public class SetmealController {
     * 前台展示套餐信息
     * */
     @GetMapping("/list")
-    @Cacheable(value = "setmealCache",key = "#setmeal.categoryId+'_'+#setmeal.status")
     public R<List<Setmeal>> list(Setmeal setmeal){
         log.info(setmeal.toString());
         LambdaQueryWrapper<Setmeal> lqw=new LambdaQueryWrapper<>();
