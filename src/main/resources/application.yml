@@ -6,9 +6,9 @@ spring:
     name: reggie_take_out
   #配置redis
   redis:
-    host: localhost
+    host: 192.168.10.11
     port: 6379
-    database: 1
+    database: 0
     #配置主从数据库
   shardingsphere:
     datasource:
